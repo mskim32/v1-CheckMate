@@ -16,10 +16,13 @@ export interface ContractClause {
   중요표기: string
   이미지: string
   uploadedImages?: UploadedImage[]
+  isForced?: boolean
 }
 
 export interface ContractConditionSelectorProps {
   onConditionsChange: (conditions: ContractClause[]) => void
+  showModal?: (title: string, message: string, type: "success" | "warning" | "error", onConfirm?: () => void) => void
+  onWorkTypeChange?: (workType: string) => void
 }
 
 export interface ParsedCSVResult {

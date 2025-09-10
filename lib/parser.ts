@@ -14,11 +14,12 @@ export function parseCSVData(csvText: string): ContractClause[] {
       공종명: values[0] || '',
       공종코드: values[1] || '',
       대분류: values[2] || '',
-      중분류: values[3] || '',
+      공종상세: values[3] || '', // 중분류를 공종상세로 매핑
+      중분류: values[3] || '', // 실제 CSV에서는 중분류가 4번째 필드
       태그: values[4] || '',
       내용: values[5] || '',
       중요표기: values[6] || '',
-      이미지: values[7] || '',
+      이미지: '', // 이미지 필드는 CSV에 없으므로 빈 문자열
       uploadedImages: []
     }
   })
@@ -69,7 +70,7 @@ export function parseCSVDataWithValidation(csvText: string): ParsedCSVResult {
     }
 
     const headers = lines[0].split(',').map(h => h.trim())
-    const expectedHeaders = ['공종명', '공종코드', '대분류', '중분류', '태그', '내용', '중요표기', '이미지']
+    const expectedHeaders = ['공종명', '공종코드', '대분류', '중분류', '태그', '내용', '중요표기']
     
     if (headers.length !== expectedHeaders.length) {
       warnings.push(`헤더 개수가 예상과 다릅니다. 예상: ${expectedHeaders.length}, 실제: ${headers.length}`)
@@ -78,7 +79,7 @@ export function parseCSVDataWithValidation(csvText: string): ParsedCSVResult {
     const data: ContractClause[] = []
     
     lines.slice(1).forEach((line, index) => {
-      const values = line.split(',').map(v => v.trim())
+      const values = parseCSVLine(line)
       
       if (values.length < 6) {
         errors.push(`라인 ${index + 2}: 필수 필드가 누락되었습니다.`)
@@ -89,11 +90,12 @@ export function parseCSVDataWithValidation(csvText: string): ParsedCSVResult {
         공종명: values[0] || '',
         공종코드: values[1] || '',
         대분류: values[2] || '',
+        공종상세: values[3] || '',
         중분류: values[3] || '',
         태그: values[4] || '',
         내용: values[5] || '',
         중요표기: values[6] || '',
-        이미지: values[7] || '',
+        이미지: '',
         uploadedImages: []
       })
     })

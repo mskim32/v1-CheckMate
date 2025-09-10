@@ -6,6 +6,7 @@ import { ControlPanel } from "@/components/control-panel"
 import { PreviewPanel } from "@/components/preview-panel"
 import { Modal } from "@/components/modal"
 import { PDFExportDialog } from "@/components/pdf-export-dialog"
+import { ContractClause } from "@/lib/types"
 
 interface ProjectInfo {
   name: string
@@ -58,6 +59,12 @@ export default function QuoteGeneratorPage() {
 
   // MISO 워크플로우 결과 텍스트 저장
   const [misoResult, setMisoResult] = useState<string>("")
+
+  // 계약조건 상태
+  const [contractConditions, setContractConditions] = useState<ContractClause[]>([])
+  
+  // 선택된 공종 상태
+  const [selectedWorkType, setSelectedWorkType] = useState<string>('')
 
   const [selectedConditions, setSelectedConditions] = useState<SelectedConditions>({
     tile_work: {
@@ -117,6 +124,12 @@ export default function QuoteGeneratorPage() {
     setModalState((prev) => ({ ...prev, isOpen: false }))
   }, [])
 
+  // 계약조건 변경 핸들러
+  const handleContractConditionsChange = useCallback((conditions: ContractClause[]) => {
+    console.log('Page - handleContractConditionsChange 호출됨:', conditions)
+    setContractConditions(conditions)
+  }, [])
+
   const handleExportPdf = useCallback(() => {
     setShowPDFDialog(true)
   }, [])
@@ -158,9 +171,19 @@ export default function QuoteGeneratorPage() {
           setSelectedConditions={setSelectedConditions}
           showModal={showModal}
           onMisoResult={(text) => setMisoResult(text)}
+          contractConditions={contractConditions}
+          setContractConditions={handleContractConditionsChange}
+          onWorkTypeChange={setSelectedWorkType}
         />
 
-        <PreviewPanel projectInfo={projectInfo} selectedConditions={selectedConditions} setProjectInfo={setProjectInfo} misoResult={misoResult} />
+        <PreviewPanel 
+          projectInfo={projectInfo} 
+          selectedConditions={selectedConditions} 
+          setProjectInfo={setProjectInfo} 
+          misoResult={misoResult}
+          contractConditions={contractConditions}
+          selectedWorkType={selectedWorkType}
+        />
       </main>
 
       <Modal
@@ -178,7 +201,8 @@ export default function QuoteGeneratorPage() {
         isOpen={showPDFDialog}
         onClose={() => setShowPDFDialog(false)}
         projectInfo={projectInfo}
-        selectedConditions={selectedConditions}
+        selectedConditions={contractConditions}
+        selectedWorkType={selectedWorkType}
         onSuccess={handlePDFExportSuccess}
         onError={handlePDFExportError}
       />

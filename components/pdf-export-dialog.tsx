@@ -24,7 +24,8 @@ interface PDFExportDialogProps {
   isOpen: boolean
   onClose: () => void
   projectInfo: any
-  selectedConditions: any
+  selectedConditions: any // ContractClause[] 또는 기존 구조
+  selectedWorkType?: string // 계약조건 선택 섹션의 공종
   onSuccess: (message: string) => void
   onError: (message: string) => void
 }
@@ -34,6 +35,7 @@ export function PDFExportDialog({
   onClose,
   projectInfo,
   selectedConditions,
+  selectedWorkType,
   onSuccess,
   onError,
 }: PDFExportDialogProps) {
@@ -56,11 +58,16 @@ export function PDFExportDialog({
     setExportProgress(0)
 
     try {
-      await exportToPDF("previewDocument", exportData, setExportProgress)
-      onSuccess("PDF 파일이 성공적으로 생성되었습니다.")
+      // PDF 내보내기 전에 잠시 대기하여 UI가 안정화되도록 함
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      await exportToPDF("preview-content", exportData, setExportProgress)
+      onSuccess("PDF 인쇄 대화상자가 열렸습니다. 'PDF로 저장'을 선택하여 파일을 다운로드하세요.")
       onClose()
     } catch (error) {
-      onError(error instanceof Error ? error.message : "PDF 생성 중 오류가 발생했습니다.")
+      console.error("PDF export error:", error)
+      const errorMessage = error instanceof Error ? error.message : "PDF 생성 중 오류가 발생했습니다."
+      onError(`PDF 내보내기 실패: ${errorMessage}`)
     } finally {
       setIsExporting(false)
       setExportProgress(0)
@@ -72,11 +79,8 @@ export function PDFExportDialog({
   }
 
   const getTotalConditions = () => {
-    const conditions = selectedConditions[projectInfo.detailedType] || {}
-    return Object.values(conditions).reduce(
-      (total: number, conditionList: any) => total + (conditionList?.length || 0),
-      0,
-    )
+    // contractConditions는 ContractClause[] 배열이므로 길이를 반환
+    return Array.isArray(selectedConditions) ? selectedConditions.length : 0
   }
 
   return (
@@ -91,30 +95,32 @@ export function PDFExportDialog({
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Validation Status */}
+          {/* PDF 다운로드 안내 */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-blue-800">
+                  PDF 다운로드 안내
+                </h3>
+                <div className="mt-1 text-sm text-blue-700">
+                  <p>내보내기 버튼을 클릭하면 새 창이 열리고 인쇄 대화상자가 나타납니다.</p>
+                  <p className="mt-1">인쇄 대화상자에서 <strong>"PDF로 저장"</strong> 또는 <strong>"다른 이름으로 저장"</strong>을 선택하여 파일을 다운로드하세요.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Info Summary */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
-              {validation.isValid ? (
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              ) : (
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              )}
-              <span className="font-medium">{validation.isValid ? "내보내기 준비 완료" : "내보내기 전 확인 필요"}</span>
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              <span className="font-medium">PDF 내보내기 준비 완료</span>
             </div>
-
-            {!validation.isValid && (
-              <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="h-4 w-4 text-red-600" />
-                  <span className="text-sm font-medium text-red-800">다음 항목을 확인해주세요:</span>
-                </div>
-                <ul className="list-disc list-inside space-y-1 text-sm text-red-700">
-                  {validation.errors.map((error, index) => (
-                    <li key={index}>{error}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -134,11 +140,7 @@ export function PDFExportDialog({
               <div>
                 <span className="text-gray-600">세부공종:</span>
                 <span className="ml-2">
-                  {projectInfo.detailedType === "tile_work" && "타일 공사"}
-                  {projectInfo.detailedType === "framing_work" && "골조 공사"}
-                  {projectInfo.detailedType === "finishing_work" && "미장 공사"}
-                  {projectInfo.detailedType === "painting_work" && "도장 공사"}
-                  {projectInfo.detailedType === "interior_woodwork" && "내장 목공사"}
+                  {selectedWorkType || "미선택"}
                 </span>
               </div>
             </div>
@@ -293,7 +295,7 @@ export function PDFExportDialog({
           <Button variant="outline" onClick={onClose} disabled={isExporting}>
             취소
           </Button>
-          <Button onClick={handleExport} disabled={!validation.isValid || isExporting}>
+          <Button onClick={handleExport} disabled={isExporting}>
             {isExporting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

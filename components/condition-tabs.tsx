@@ -39,6 +39,8 @@ export function ConditionTabs({ projectInfo, selectedConditions, setSelectedCond
   const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const handleConditionChange = (conditionId: string, checked: boolean, tab: string) => {
+    console.log('ConditionTabs - handleConditionChange 호출:', { conditionId, checked, tab, detailedType: projectInfo.detailedType })
+    
     const updatedConditions = { ...selectedConditions }
     const currentProjectConditions = updatedConditions[projectInfo.detailedType]
 
@@ -47,11 +49,14 @@ export function ConditionTabs({ projectInfo, selectedConditions, setSelectedCond
       const condition = dataSource.find((c: any) => c.id === conditionId)
       if (condition && !currentProjectConditions[tab].some((c: any) => c.id === conditionId)) {
         currentProjectConditions[tab].push(condition)
+        console.log('ConditionTabs - 조건 추가됨:', condition)
       }
     } else {
       currentProjectConditions[tab] = currentProjectConditions[tab].filter((c: any) => c.id !== conditionId)
+      console.log('ConditionTabs - 조건 제거됨:', conditionId)
     }
 
+    console.log('ConditionTabs - 업데이트된 조건들:', updatedConditions)
     setSelectedConditions(updatedConditions)
   }
 

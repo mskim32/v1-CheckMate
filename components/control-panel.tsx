@@ -12,6 +12,7 @@ import { RiskAssessmentPanel } from "@/components/risk-assessment-panel"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { RotateCcw, Shield } from "lucide-react"
 import { analyzeRisk, type RiskAnalysis } from "@/lib/risk-assessment"
+import { ContractClause } from "@/lib/types"
 
 interface ProjectInfo {
   name: string
@@ -37,6 +38,9 @@ interface ControlPanelProps {
   setSelectedConditions: (conditions: any) => void
   showModal: (title: string, message: string, type: "success" | "warning" | "error", onConfirm?: () => void, onDelete?: () => void, showDelete?: boolean) => void
   onMisoResult?: (text: string) => void
+  contractConditions: ContractClause[]
+  setContractConditions: (conditions: ContractClause[]) => void
+  onWorkTypeChange?: (workType: string) => void
 }
 
 export function ControlPanel({
@@ -46,8 +50,12 @@ export function ControlPanel({
   setSelectedConditions,
   showModal,
   onMisoResult,
+  contractConditions,
+  setContractConditions,
+  onWorkTypeChange,
 }: ControlPanelProps) {
   const [siteSearchTerm, setSiteSearchTerm] = useState("")
+  const [selectedWorkType, setSelectedWorkType] = useState<string>('')
   const [siteOptions, setSiteOptions] = useState<Array<{ label: string; value: string }>>([])
   const [presets, setPresets] = useState<Record<string, any>>({})
   
@@ -191,8 +199,16 @@ export function ControlPanel({
         <TabsContent value="contract-conditions" className="space-y-6 mt-6">
           <ContractConditionSelector 
             onConditionsChange={(conditions) => {
-              console.log('선택된 계약조건:', conditions)
-              // 여기서 선택된 조건들을 처리할 수 있습니다
+              console.log('ControlPanel - ContractConditionSelector에서 받은 조건들:', conditions)
+              console.log('ControlPanel - setContractConditions 호출')
+              setContractConditions(conditions)
+            }}
+            showModal={showModal}
+            onWorkTypeChange={(workType) => {
+              setSelectedWorkType(workType)
+              if (onWorkTypeChange) {
+                onWorkTypeChange(workType)
+              }
             }}
           />
         </TabsContent>

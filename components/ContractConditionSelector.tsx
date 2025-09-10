@@ -8,15 +8,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Upload, X, Star, RefreshCw, Search, Shield, RotateCcw } from 'lucide-react'
+import { Upload, X, Star, RefreshCw, Search, Shield, RotateCcw, Trash2, Plus, CheckSquare, Square } from 'lucide-react'
 import { ContractClause, ContractConditionSelectorProps, UploadedImage } from '@/lib/types'
 import { parseCSVData, getUniqueCategories, getUniqueSubCategories, getUniqueTags, getFilteredClauses, getWorkTypes } from '@/lib/parser'
 import { getImagePath, formatFileSize, generateId, createImagePreview, validateImageFile } from '@/lib/contract-utils'
 import { Textarea } from '@/components/ui/textarea'
 import { RiskAssessmentPanel } from '@/components/risk-assessment-panel'
-import { analyzeRisk, type RiskAnalysis } from '@/lib/risk-assessment'
 
-export function ContractConditionSelector({ onConditionsChange }: ContractConditionSelectorProps) {
+// RiskAnalysis 타입 정의
+interface RiskAnalysis {
+  score: number
+  level: 'low' | 'medium' | 'high' | 'critical'
+  category: string
+  issues: string[]
+  suggestions: string[]
+  blockedKeywords: string[]
+}
+
+export function ContractConditionSelector({ onConditionsChange, showModal, onWorkTypeChange }: ContractConditionSelectorProps) {
   const [clauses, setClauses] = useState<ContractClause[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -45,15 +54,59 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
 
   // 위험도 분석 함수들
   const handleReviewRisk = async () => {
-    if (!customConditionText.trim()) return
+    if (!customConditionText.trim()) {
+      if (showModal) {
+        showModal("입력 오류", "분석할 내용을 먼저 입력해 주세요.", "error")
+      }
+      return
+    }
 
+    setIsAnalyzing(true)
     try {
-      setIsAnalyzing(true)
-      const analysis = await analyzeRisk(customConditionText)
+      // Call backend MISO workflow API
+      const res = await fetch("/api/miso/workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input_text: customConditionText.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data?.error || "API 오류")
+      }
+
+      // Create analysis based on MISO result
+      const misoResult = data?.result ?? ""
+      const hasUnfairClause = misoResult.includes("부당특약") || misoResult.includes("부당")
+      
+      const analysis = {
+        score: hasUnfairClause ? 75 : 5,
+        level: hasUnfairClause ? "high" as const : "low" as const,
+        category: hasUnfairClause ? "부당특약" : "일반사항",
+        issues: hasUnfairClause ? ["부당특약 발견"] : [],
+        suggestions: [misoResult], // MISO 결과를 권장사항으로 사용
+        blockedKeywords: [],
+      }
+      
       setRiskAnalysis(analysis)
       setShowRiskAnalysis(true)
-    } catch (error) {
-      console.error('위험도 분석 오류:', error)
+
+      // Optionally persist brief history
+      const history = JSON.parse(localStorage.getItem("risk-analysis-history") || "[]")
+      history.push({
+        text: customConditionText,
+        analysis,
+        timestamp: new Date().toISOString(),
+        misoResult: data?.result ?? "",
+      })
+      if (history.length > 10) {
+        history.shift()
+      }
+      localStorage.setItem("risk-analysis-history", JSON.stringify(history))
+    } catch (e: any) {
+      console.error(e)
+      if (showModal) {
+        showModal("API 오류", e?.message || "미소 API 호출 중 오류가 발생했습니다.", "error")
+      }
     } finally {
       setIsAnalyzing(false)
     }
@@ -61,16 +114,70 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
 
   const handleAddCustomCondition = () => {
     if (!customConditionText.trim()) {
-      alert("추가할 내용을 먼저 입력해 주세요.")
+      if (showModal) {
+        showModal("입력 오류", "추가할 내용을 먼저 입력해 주세요.", "error")
+      } else {
+        alert("추가할 내용을 먼저 입력해 주세요.")
+      }
       return
     }
 
     if (!riskAnalysis) {
-      alert("위험도 분석을 먼저 진행해 주세요. 위험도 분석 없이는 조건을 추가할 수 없습니다.")
+      if (showModal) {
+        showModal("경고", "위험도 분석을 먼저 진행해 주세요. 위험도 분석 없이는 조건을 추가할 수 없습니다.", "warning")
+      } else {
+        alert("위험도 분석을 먼저 진행해 주세요. 위험도 분석 없이는 조건을 추가할 수 없습니다.")
+      }
       return
     }
 
-    // 현재 선택된 중분류에 따라 조건 추가
+    if (riskAnalysis.level === "critical" || riskAnalysis.level === "high") {
+      if (showModal) {
+        showModal(
+          "위험도 높음",
+          `위험도가 ${riskAnalysis.level === "critical" ? "매우 높은" : "높은"} 조건입니다. 강제로 추가하시겠습니까?`,
+          "warning",
+          () => {
+            // 강제 추가 로직
+            const newCondition: ContractClause = {
+              공종명: selectedWorkType || '사용자 정의',
+              공종코드: 'CUSTOM',
+              대분류: selectedCategory || '기타',
+              공종상세: customConditionText,
+              중분류: selectedSubCategory || '기타',
+              태그: selectedTag || '사용자정의',
+              내용: customConditionText,
+              중요표기: '중요',
+              이미지: '',
+              isForced: true // 강제 추가 플래그
+            }
+
+            // 선택된 조건에 추가
+            const updatedConditions = [...selectedConditions, newCondition]
+            setSelectedConditions(updatedConditions)
+            onConditionsChange(updatedConditions)
+
+            // 초기화
+            setCustomConditionText('')
+            setRiskAnalysis(null)
+            setShowRiskAnalysis(false)
+            
+            if (showModal) {
+              showModal("강제 추가 완료", "위험도가 높은 조건이 강제로 추가되었습니다. 별도 확인이 필요합니다.", "warning")
+            }
+          }
+        )
+      }
+      return
+    }
+
+    if (riskAnalysis.level === "medium") {
+      if (showModal) {
+        showModal("주의 필요", "중간 위험도의 조건입니다. 담당자와 협의 후 추가하시기 바랍니다.", "warning")
+      }
+    }
+
+    // 일반 추가 로직
     const newCondition: ContractClause = {
       공종명: selectedWorkType || '사용자 정의',
       공종코드: 'CUSTOM',
@@ -79,7 +186,7 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
       중분류: selectedSubCategory || '기타',
       태그: selectedTag || '사용자정의',
       내용: customConditionText,
-      중요표기: riskAnalysis.level === 'critical' || riskAnalysis.level === 'high' ? '중요' : '일반',
+      중요표기: '일반',
       이미지: ''
     }
 
@@ -100,7 +207,7 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
     setShowRiskAnalysis(false)
   }
 
-  // CSV 데이터 로드
+  // CSV 데이터 로드 및 초기화
   const loadCSVData = async () => {
     try {
       setLoading(true)
@@ -133,6 +240,36 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
     } finally {
       setLoading(false)
     }
+  }
+
+  // 데이터 새로고침 및 초기화
+  const handleRefreshData = async () => {
+    console.log('ContractConditionSelector - 데이터 새로고침 시작')
+    
+    // 선택된 조건들 초기화
+    setSelectedConditions([])
+    console.log('ContractConditionSelector - 선택된 조건들 초기화됨')
+    
+    // 필터 상태 초기화
+    setSelectedWorkType('')
+    setSelectedCategory('')
+    setSelectedSubCategory('')
+    setSelectedTag('')
+    setWorkTypeSearchTerm('')
+    setShowWorkTypeDropdown(false)
+    
+    // 이미지 업로드 상태 초기화
+    setUploadingImages({})
+    
+    // 상위 컴포넌트에 공종 초기화 알림
+    if (onWorkTypeChange) {
+      onWorkTypeChange('')
+    }
+    
+    // CSV 데이터 다시 로드
+    await loadCSVData()
+    
+    console.log('ContractConditionSelector - 데이터 새로고침 완료')
   }
 
   useEffect(() => {
@@ -168,10 +305,54 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
   const toggleCondition = (clause: ContractClause) => {
     const isSelected = selectedConditions.some(c => c.공종코드 === clause.공종코드 && c.내용 === clause.내용)
    
+    console.log('ContractConditionSelector - 조건 토글:', {
+      내용: clause.내용,
+      대분류: clause.대분류,
+      중분류: clause.중분류,
+      태그: clause.태그,
+      isSelected
+    })
+   
     if (isSelected) {
-      setSelectedConditions(prev => prev.filter(c => !(c.공종코드 === clause.공종코드 && c.내용 === clause.내용)))
+      const newConditions = selectedConditions.filter(c => !(c.공종코드 === clause.공종코드 && c.내용 === clause.내용))
+      setSelectedConditions(newConditions)
     } else {
-      setSelectedConditions(prev => [...prev, clause])
+      const newConditions = [...selectedConditions, clause]
+      setSelectedConditions(newConditions)
+    }
+  }
+
+  // 개별 조건 삭제
+  const removeCondition = (conditionToRemove: ContractClause) => {
+    const newConditions = selectedConditions.filter(c => !(c.공종코드 === conditionToRemove.공종코드 && c.내용 === conditionToRemove.내용))
+    setSelectedConditions(newConditions)
+  }
+
+  // 전체 조건 삭제
+  const clearAllConditions = () => {
+    if (showModal) {
+      showModal(
+        "전체 삭제 확인",
+        "선택된 모든 계약조건을 삭제하시겠습니까?",
+        "warning",
+        () => {
+          setSelectedConditions([])
+          showModal("삭제 완료", "모든 계약조건이 삭제되었습니다.", "success")
+        }
+      )
+    } else {
+      setSelectedConditions([])
+    }
+  }
+
+  // 전체 선택/해제
+  const toggleAllConditions = () => {
+    if (selectedConditions.length === filteredClauses.length) {
+      // 모두 선택된 상태면 모두 해제
+      setSelectedConditions([])
+    } else {
+      // 일부만 선택된 상태면 모두 선택
+      setSelectedConditions([...filteredClauses])
     }
   }
 
@@ -221,8 +402,15 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
         uploadedImages
       }
     })
+    console.log('ContractConditionSelector - 선택된 조건들:', conditionsWithImages)
+    console.log('ContractConditionSelector - 카테고리별 분류:', {
+      공사사항: conditionsWithImages.filter(c => c.대분류 === '공사사항'),
+      안전사항: conditionsWithImages.filter(c => c.대분류 === '안전사항'),
+      품질사항: conditionsWithImages.filter(c => c.대분류 === '품질사항'),
+      기타: conditionsWithImages.filter(c => !['공사사항', '안전사항', '품질사항'].includes(c.대분류))
+    })
     onConditionsChange(conditionsWithImages)
-  }, [selectedConditions, uploadingImages, onConditionsChange])
+  }, [selectedConditions, uploadingImages])
 
   if (loading) {
     return (
@@ -255,7 +443,7 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
     <div className="space-y-6">
       {/* 새로고침 버튼 */}
       <div className="flex justify-end">
-        <Button onClick={loadCSVData} variant="outline" size="sm">
+        <Button onClick={handleRefreshData} variant="outline" size="sm">
           <RefreshCw className="h-4 w-4 mr-1" />
           데이터 새로고침
         </Button>
@@ -297,6 +485,11 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
                           setSelectedWorkType(workType)
                           setWorkTypeSearchTerm(workType)
                           setShowWorkTypeDropdown(false)
+                          
+                          // 상위 컴포넌트에 공종 변경 알림
+                          if (onWorkTypeChange) {
+                            onWorkTypeChange(workType)
+                          }
                         }}
                       >
                         {workType}
@@ -326,6 +519,11 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
                     setSelectedCategory('')
                     setSelectedSubCategory('')
                     setSelectedTag('')
+                    
+                    // 상위 컴포넌트에 공종 초기화 알림
+                    if (onWorkTypeChange) {
+                      onWorkTypeChange('')
+                    }
                   }}
                   className="ml-2 text-xs"
                 >
@@ -364,7 +562,10 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
                     key={subCategory}
                     variant={selectedSubCategory === subCategory ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setSelectedSubCategory(subCategory)}
+                    onClick={() => {
+                      console.log('ContractConditionSelector - 중분류 선택:', subCategory)
+                      setSelectedSubCategory(subCategory)
+                    }}
                     className="text-sm"
                   >
                     {subCategory}
@@ -400,7 +601,34 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
       {selectedTag && (
         <Card>
           <CardHeader>
-            <CardTitle>계약조건 목록</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>계약조건 목록</CardTitle>
+              {filteredClauses.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleAllConditions}
+                    className="text-xs"
+                  >
+                    {selectedConditions.length === filteredClauses.length ? (
+                      <>
+                        <CheckSquare className="h-3 w-3 mr-1" />
+                        전체 해제
+                      </>
+                    ) : (
+                      <>
+                        <Square className="h-3 w-3 mr-1" />
+                        전체 선택
+                      </>
+                    )}
+                  </Button>
+                  <Badge variant="secondary" className="text-xs">
+                    {selectedConditions.length}/{filteredClauses.length}
+                  </Badge>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="h-96 overflow-y-auto">
@@ -411,7 +639,9 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
                   const images = uploadingImages[clauseKey] || []
                  
                   return (
-                    <div key={index} className="border rounded-lg p-4 space-y-3">
+                    <div key={index} className={`border rounded-lg p-4 space-y-3 transition-all duration-200 ${
+                      isSelected ? 'border-blue-500 bg-blue-50 shadow-md' : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                    }`}>
                       <div className="flex items-start space-x-3">
                         <Checkbox
                           checked={isSelected}
@@ -425,6 +655,24 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
                             <span className="font-medium">{clause.내용}</span>
                             {clause.중요표기 === '중요' && (
                               <Badge variant="destructive" className="text-xs">중요</Badge>
+                            )}
+                            {isSelected && (
+                              <Badge variant="default" className="text-xs bg-blue-600">선택됨</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2 text-xs text-gray-500">
+                            <Badge variant="outline" className="text-xs">
+                              {clause.대분류}
+                            </Badge>
+                            {clause.중분류 && (
+                              <Badge variant="outline" className="text-xs">
+                                {clause.중분류}
+                              </Badge>
+                            )}
+                            {clause.태그 && (
+                              <Badge variant="outline" className="text-xs">
+                                {clause.태그}
+                              </Badge>
                             )}
                           </div>
                          
@@ -537,24 +785,60 @@ export function ContractConditionSelector({ onConditionsChange }: ContractCondit
       {selectedConditions.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>선택된 계약조건 ({selectedConditions.length}개)</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>선택된 계약조건 ({selectedConditions.length}개)</CardTitle>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearAllConditions}
+                  className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  전체 삭제
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="h-48 overflow-y-auto">
               <div className="space-y-2">
                 {selectedConditions.map((condition, index) => (
-                  <div key={index} className="flex items-start space-x-2 p-2 bg-gray-50 rounded">
+                  <div key={index} className="flex items-start space-x-2 p-3 bg-gray-50 rounded-lg border hover:bg-gray-100 transition-colors">
                     <div className="flex-1">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 mb-1">
                         {condition.중요표기 === '중요' && (
                           <Star className="h-4 w-4 text-red-500 fill-current" />
                         )}
-                        <span className="text-sm">{condition.내용}</span>
+                        <span className="text-sm font-medium">{condition.내용}</span>
                         {condition.중요표기 === '중요' && (
                           <Badge variant="destructive" className="text-xs">중요</Badge>
                         )}
                       </div>
+                      <div className="flex items-center space-x-2 text-xs text-gray-500">
+                        <Badge variant="outline" className="text-xs">
+                          {condition.대분류}
+                        </Badge>
+                        {condition.중분류 && (
+                          <Badge variant="outline" className="text-xs">
+                            {condition.중분류}
+                          </Badge>
+                        )}
+                        {condition.태그 && (
+                          <Badge variant="outline" className="text-xs">
+                            {condition.태그}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeCondition(condition)}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 h-6 w-6"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
                   </div>
                 ))}
               </div>
