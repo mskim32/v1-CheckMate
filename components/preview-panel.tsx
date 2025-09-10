@@ -264,7 +264,7 @@ export function PreviewPanel({
                     value={projectInfo.contactName ?? ""}
                     onChange={(e) => setProjectInfo({ ...projectInfo, contactName: e.target.value })}
                   />
-                  전임(연락처 : 010-5252-5252 / 이메일 : 5252@gsenc.com)
+                  (연락처 : 010-5252-5252 / 이메일 : 5252@gsenc.com)
                 </>
               ) : (
                 `${projectInfo.contactRole ?? "공무"} ${projectInfo.contactName ?? "000"} 전임(연락처 : 010-5252-5252 / 이메일 : 5252@gsenc.com)`
